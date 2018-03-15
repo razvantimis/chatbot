@@ -14,9 +14,7 @@
   "dependencies": {
     "aws-sdk": "^2.209.0",
     "claudia-bot-builder": "^3",
-    "dialogue-builder": "^0.3.0",
-    "huh": "^2.0.1",
-    "wikidata-search": "^1.0.3"
+    "huh": "^2.0.1"
   },
   "devDependencies": {
     "@types/node": "^9.4.7",
