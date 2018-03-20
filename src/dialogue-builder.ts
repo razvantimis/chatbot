@@ -1,12 +1,15 @@
 import assert = require('assert');
-import {fbTemplate} from 'claudia-bot-builder/lib/bot-builder';
-import BaseTemplate = fbTemplate.BaseTemplate
-import Text = fbTemplate.Text;
-import Pause = fbTemplate.Pause;
-import List = fbTemplate.List;
-import Button = fbTemplate.Button;
-import Attachment = fbTemplate.Attachment;
-import ChatAction = fbTemplate.ChatAction;
+import builder = require('claudia-bot-builder');
+import Pause = builder.fbTemplate.Pause;
+import List = builder.fbTemplate.List;
+import Button = builder.fbTemplate.Button;
+import Attachment = builder.fbTemplate.Attachment;
+import ChatAction = builder.fbTemplate.ChatAction;
+
+
+const isUrl = require('./utils/is-url');
+const breakText = require('./utils/breaktext');
+
 
 export const defaultAction = Symbol("a default action")
 export const location = Symbol("a location")
@@ -16,6 +19,8 @@ export const onImage = Symbol("an image")
 export const onAudio = Symbol("a voice recording")
 export const onVideo = Symbol("a video")
 export const onFile = Symbol("a file")
+
+
 
 export type ResponseHandler = any
 // export interface ResponseHandler {
@@ -52,11 +57,91 @@ export type Label = String
 export class Expect extends Directive {}
 export class Goto extends Directive {}
 
-class Ask extends Text {
-    constructor(text: string) {
-        super(text)
+
+class BaseTemplate {
+    template;
+    identifier: string
+    constructor() {
+        this.template = {};
+    }
+
+    getReadingDuration() {return this.template.text.match(/\w+/g)!.length * 250;}
+    setBaseUrl(this: List, url: string) { return this }
+    postbacks: [string, () => Goto | void][]
+
+
+    setNotificationType(type) {
+        if (type !== 'REGULAR' && type !== 'SILENT_PUSH' && type !== 'NO_PUSH')
+            throw new Error('Notification type must be one of REGULAR, SILENT_PUSH, or NO_PUSH');
+        this.template.notification_type = type;
+        return this;
+    }
+
+    addQuickReply(text, payload, imageUrl?) {
+        if (!text || !payload)
+            throw new Error('Both text and payload are required for a quick reply');
+
+        if (payload.length > 1000)
+            throw new Error('Payload can not be more than 1000 characters long');
+        if (imageUrl && !isUrl(imageUrl))
+            throw new Error('Image has a bad url');
+
+        if (!this.template.quick_replies)
+            this.template.quick_replies = [];
+
+        if (this.template.quick_replies.length === 11)
+            throw new Error('There can not be more than 11 quick replies');
+
+        if (text.length > 20)
+            text = breakText(text, 20)[0];
+
+        let quickReply: any = {
+            content_type: 'text',
+            title: text,
+            payload: payload,
+        };
+
+        if (imageUrl) quickReply.image_url = imageUrl;
+
+        this.template.quick_replies.push(quickReply);
+
+        return this;
+    }
+
+    addQuickReplyLocation() {
+        if (!this.template.quick_replies)
+            this.template.quick_replies = [];
+
+        if (this.template.quick_replies.length === 11)
+            throw new Error('There can not be more than 11 quick replies');
+
+        let quickReply = {
+            content_type: 'location'
+        };
+
+        this.template.quick_replies.push(quickReply);
+
+        return this;
+    }
+
+    get() {
+        return this.template;
     }
 }
+
+class Text extends BaseTemplate {
+    constructor(text) {
+        super();
+        if (!text)
+            throw new Error('Text is required for text template');
+
+        this.template = {
+            text: text
+        };
+    }
+}
+
+class Ask extends Text {}
 
 export type Script = Array<BaseTemplate | Label | Directive | ResponseHandler>
 
@@ -173,6 +258,7 @@ export class Dialogue<T> {
         const gotos: {line: number, label: string}[] = [];
         for (let line = 0; line < this.script.length; line++) {
             const value = this.script[line];
+
             if (value instanceof Expect) {
                 if (expects.has(value.toString())) throw new Error(`Duplicate expect statement found on line ${line}: expect \`${value}\``);
                 expects.set(value.toString(), line);
@@ -190,7 +276,7 @@ export class Dialogue<T> {
                 if (value.identifier) templates.add(value.identifier);
                 (value.postbacks || []).forEach(p => this.handlers.set(p[0], p[1]));
             } else if (value !== null) {
-                throw new Error(`Response handler must be preceded by an expect statement on line ${line}`)
+                throw new Error(`Response handler must be preceded by an expect statement on line ${JSON.stringify(this.script, null, 2)}`);
             }
         }
         if (labels.size == this.script.length) throw new Error('Dialogue cannot be empty');
@@ -510,35 +596,3 @@ export namespace mock {
         }
     }
 }
-
-// declare module "claudia-bot-builder" {
-//     namespace fbTemplate {
-//         interface BaseTemplate {
-//             getReadingDuration: () => number
-//             setBaseUrl: (url: string) => this
-//             postbacks?: [string, () => Goto | void][]
-//             identifier?: string
-//         }
-//         interface Text {
-//             template: { text: string };
-//         }
-//         interface Attachment {
-//             template: { attachment: { payload: { url: string }}};
-//         }
-//     }
-// }
-
-// BaseTemplate.prototype.getReadingDuration = () => 1000;
-// Text.prototype.getReadingDuration = function(this: Text) { return this.template.text.match(/\w+/g)!.length * 250; }
-
-// BaseTemplate.prototype.setBaseUrl = function(this: List, url: string) { return this }
-// List.prototype.setBaseUrl = function(this: List, url: string) { 
-//     this.bubbles.forEach(b => b.image_url = !b.image_url || b.image_url.indexOf('://') >= 0 ? b.image_url : url + b.image_url);
-//     return this;
-// }
-
-// Attachment.prototype.setBaseUrl = function(this: Attachment, baseUrl: string) { 
-//     const url = this.template.attachment.payload.url;
-//     if(url.indexOf('://') < 0) this.template.attachment.payload.url = baseUrl + url;
-//     return this;
-// }

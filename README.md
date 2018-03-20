@@ -1,6 +1,6 @@
-# Chat bot with buttons
+# Chat bot ( only facebook)
 
-A simple bot demonstrating how to create buttons and post-back actions on Facebook Messenger using Claudia.js.
+A simple bot demonstrating on Facebook Messenger using Claudia.js
 
 [Try it live](https://m.me/factbot) using Facebook Messenger.
 
