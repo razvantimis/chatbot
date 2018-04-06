@@ -4,11 +4,21 @@ import builder = require('claudia-bot-builder');
 import {DynamoDB} from 'aws-sdk'
 import {Dialogue} from './dialogue-builder'
 import onboarding from './onboarding'
+import {Logger, guid} from './utils/logger';
+import altfredBot from './altfred-smart';
+
 
 const claudiaBot = builder((message: any, apiRequest: any) => {
-    try {
-        const dynamo = new DynamoDB.DocumentClient();
+    const dynamo = new DynamoDB.DocumentClient();
 
+    const logger = new Logger(async (msg: string) => {
+        await dynamo.put({
+            TableName: 'bot-users-log',
+            Item: {id: Date.now().toString() + "//" + guid(), fbid: message.sender, msg: msg}
+        }).promise();
+    });
+
+    try {
         const storage = {
             async retrieve() {
                 const user = await dynamo.get({
@@ -24,21 +34,23 @@ const claudiaBot = builder((message: any, apiRequest: any) => {
                     Item: {fbid: message.sender, state: state}
                 }).promise();
             }
-        }
 
-        const dialogue = new Dialogue(onboarding, storage, message.sender);
+        }
+        const dialogue = new Dialogue(onboarding, storage, logger, message.sender);
 
         dialogue.setKeywordHandler(['back', 'undo'], 'undo');
         dialogue.setKeywordHandler('reset', 'restart');
-
-        return dialogue.consume(message, apiRequest).catch((e) => ['I have said all I have to say ' + e.message]);
+        
+        return dialogue.consume(message, apiRequest).catch((e) => ['I have said all ' + JSON.stringify(e)]);
 
     } catch (error) {
-        console.log(error);
-        console.log(error.stack);
+        logger.error(error);
+        logger.error(error.stack);
         return `${error} at ${error.stack}`;
     }
 });
+
+
 
 
 declare var module: any;

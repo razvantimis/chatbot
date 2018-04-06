@@ -6,6 +6,7 @@ import Button = builder.fbTemplate.Button;
 import Attachment = builder.fbTemplate.Attachment;
 import ChatAction = builder.fbTemplate.ChatAction;
 
+import altfredBot from './altfred-smart'
 
 const isUrl = require('./utils/is-url');
 const breakText = require('./utils/breaktext');
@@ -23,13 +24,6 @@ export const onFile = Symbol("a file")
 
 
 export type ResponseHandler = any
-// export interface ResponseHandler {
-//     readonly [quickReply: string]: () => Goto | Expect | void | Promise<Goto | Expect | void>
-//     readonly [location]?(lat: number, long: number, title?: string, url?: string): Goto | Expect | void | Promise<Goto | Expect | void>
-//     readonly [onText]?(text: string): Goto | Expect | void | Promise<Goto | Expect | void>
-//     readonly [onLocation]?(lat: number, long: number, title?: string, url?: string): Goto | Expect | void | Promise<Goto | Expect | void>
-//     readonly [onImage]?(url: string): Goto | Expect | void;
-// }
 
 const ordinals = ['first', 'second', 'third', 'forth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth']
 
@@ -245,13 +239,16 @@ export class Dialogue<T> {
     private readonly handlers: Map<string, () => void | Goto>
     private script: Script
     private outputFilter: (o: BaseTemplate) => boolean
+    private logger;
 
     public baseUrl: string
 
-    constructor(builder: DialogueBuilder<T>, storage: Storage, ...context: T[]) {
+    constructor(builder: DialogueBuilder<T>, storage: Storage, logger: any, ...context: T[]) {
         this.build = () => this.script = builder(...context);
         this.build();
         this.handlers = new Map();
+        this.logger = logger;
+
         const templates = new Set();
         const labels = new Map();
         const expects = new Map();
@@ -282,7 +279,7 @@ export class Dialogue<T> {
         if (labels.size == this.script.length) throw new Error('Dialogue cannot be empty');
         const goto = gotos.find(g => !labels.has(g.label));
         if (goto) new Error(`Could not find label referenced on line ${goto.line}: goto \`${goto.label}\``);
-        this.state = new State(storage, expects, labels);
+        this.state = new State(storage, this.logger, expects, labels);
     }
 
     async execute(directive: Directive) {
@@ -303,12 +300,12 @@ export class Dialogue<T> {
     private async process(message: any, processor: Processor): Promise<string[]> {
         await this.state.retrieveState();
         //process input
-        console.log(message)
+        this.logger.info(message)
         const output: Array<BaseTemplate> = []
         if (message.originalRequest.postback) {
             const payload = message.originalRequest.postback.payload;
             processor.consumePostback(payload) || processor.consumeKeyword(payload)
-                || console.log(`Postback received with unknown payload '${payload}'`);
+                || this.logger.info(`Postback received with unknown payload '${payload}'`);
         } else if (!processor.consumeKeyword(message.text)) {
             const line = this.state.startLine;
             if (line > 0) try {
@@ -320,9 +317,15 @@ export class Dialogue<T> {
                 }
                 await processResponse(line);
             } catch (e) {
-                if (!(e instanceof UnexpectedInputError)) throw e;
+                if (!(e instanceof UnexpectedInputError)){
+                     throw e;
+                }
                 this.state.undo(1);
-                output.push(new Text(e.message));
+                //output.push(new Text(e.message));
+                
+                let data: any = await altfredBot(message.text);
+                this.logger.info(data)
+                output.push(new Text(data.receiver));
                 this.outputFilter = o => e.repeatQuestion ? o instanceof Ask : false;
             }
         }
@@ -355,7 +358,7 @@ export class Dialogue<T> {
         return output.length == 0 ? [] : processor.insertPauses(output).map(e => e.get());
     }
 
-    async consume(message: any, apiRequest: any): Promise<any[]> {
+    async consume(message: any, apiRequest: any): Promise<string[]> {
         return this.process(message, {
             consumeKeyword(this: Processor, keyword) {
                 return this.consumePostback(`keyword '${keyword.toLowerCase()}'`);
@@ -422,8 +425,9 @@ export class Dialogue<T> {
 class State {
     private state: Array<{type: 'label' | 'expect' | 'complete', name?: string}>
     private jumpCount = 0;
+   
 
-    constructor(private storage: Storage, private expects: Map<string, number>, private labels: Map<string, number>) {
+    constructor(private storage: Storage, private logger, private expects: Map<string, number>, private labels: Map<string, number>) {
     }
 
     async retrieveState() {
@@ -461,7 +465,7 @@ class State {
         } else {
             const label = location.toString().startsWith('!') ? location.toString().substring(1) : location.toString();
             if (!this.labels.has(label)) throw new Error(`Could not find label referenced ${typeof lineOrIdentifier == 'number' ? 'on line' : 'by'} ${lineOrIdentifier}: goto \`${location.toString()}\``);
-            console.log(`Jumping to label '${label}' from ${typeof lineOrIdentifier == 'number' ? 'line' : ''} ${lineOrIdentifier}: goto \`${location.toString()}\``);
+            this.logger.info(`Jumping to label '${label}' from ${typeof lineOrIdentifier == 'number' ? 'line' : ''} ${lineOrIdentifier}: goto \`${location.toString()}\``);
             if (this.isComplete) this.state.shift();
             this.state.unshift({type: 'label', name: label});
         }
@@ -483,116 +487,5 @@ class State {
     undo(steps: number) {
         assert(this.state);
         this.state.splice(0, this.state.findIndex((s, i) => (i + 1 >= steps && s.type === 'expect') || i + 1 === this.state.length) + 1);
-    }
-}
-
-export namespace mock {
-
-    export const apiRequest: any = {
-        queryString: {},
-        env: {},
-        headers: {},
-        normalizedHeaders: {},
-        lambdaContext: {
-            callbackWaitsForEmptyEventLoop: false,
-            getRemainingTimeInMillis: () => 15
-        }
-    }
-
-    export function message(text: string): any {
-        return {
-            postback: false,
-            text: text,
-            sender: "user",
-            type: 'facebook',
-            originalRequest: {
-                sender: {id: "user"},
-                recipient: {id: "bot"},
-                timestamp: 0,
-                message: {
-                    mid: "1",
-                    seq: 1,
-                    text: text
-                }
-            }
-        }
-    }
-
-    export function postback(payload: string = 'USER_DEFINED_PAYLOAD'): any {
-        return {
-            postback: true,
-            text: '',
-            sender: "user",
-            type: 'facebook',
-            originalRequest: {
-                sender: {id: "user"},
-                recipient: {id: "bot"},
-                timestamp: 0,
-                message: {
-                    mid: "1",
-                    seq: 1,
-                    text: ""
-                },
-                postback: {
-                    payload: payload
-                }
-            }
-        };
-    }
-
-    export function location(lat: number, long: number, title?: string, url?: string): any {
-        return {
-            postback: false,
-            text: "",
-            sender: "user",
-            type: 'facebook',
-            originalRequest: {
-                sender: {id: "user"},
-                recipient: {id: "bot"},
-                timestamp: 0,
-                message: {
-                    mid: "1",
-                    seq: 1,
-                    text: "",
-                    attachments: [{
-                        type: "location",
-                        payload: {
-                            title: title,
-                            url: url,
-                            coordinates: {
-                                lat: lat,
-                                long: long
-                            }
-                        }
-                    }]
-                }
-            }
-        }
-    }
-
-    export function multimedia(type: 'image' | 'audio' | 'video' | 'file' | 'location', url: string): any {
-        return {
-            postback: false,
-            text: "",
-            sender: "user",
-            type: 'facebook',
-            originalRequest: {
-                sender: {id: "user"},
-                recipient: {id: "bot"},
-                timestamp: 0,
-                message: {
-                    mid: "1",
-                    seq: 1,
-                    text: "",
-                    attachments: [{
-                        type: type,
-                        payload: {
-                            url: url,
-                        }
-                    }]
-
-                }
-            }
-        }
     }
 }

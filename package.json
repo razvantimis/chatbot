@@ -14,10 +14,13 @@
   "dependencies": {
     "aws-sdk": "^2.209.0",
     "claudia-bot-builder": "^3",
-    "huh": "^2.0.1"
+    "huh": "^2.0.1",
+    "request": "^2.85.0",
+    "request-promise": "^4.2.2"
   },
   "devDependencies": {
     "@types/node": "^9.4.7",
+    "@types/request-promise": "^4.1.41",
     "claudia": "^3",
     "nodemon": "^1.17.2",
     "ts-node": "^5.0.1",
